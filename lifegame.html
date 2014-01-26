@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<!-- 参考 http://ottati.hatenablog.com/entry/2013/09/14/105014 -->
+<script type="application/javascript">
+//<![CDATA[
+var SCREEN_SIZE = 500;                    // キャンバスの幅
+var SIDE_CELLS = 200;                     // 一辺のセルの数
+var CELL_SIZE = SCREEN_SIZE / SIDE_CELLS; // セルの幅
+var FPS = 15;                             // フレームレート
+var canvas;                     //= document.getElementById('world');
+var context;                    //= canvas.getContext('2d');
+var living = 3;                 //寿命
+var step = 0;
+var field;
+var tempField;
+var isStop = false;
+var M = 100000;
+
+window.onload = function() {
+    canvas = document.getElementById('world'); // canvas要素を取得
+    canvas.width = canvas.height = SCREEN_SIZE; // キャンバスのサイズを設定
+    var scaleRate = Math.min(document.width/SCREEN_SIZE, window.innerHeight/SCREEN_SIZE);
+    canvas.style.width = canvas.style.height = SCREEN_SIZE*scaleRate+'px';  // キャンバスを引き伸ばし
+    context = canvas.getContext('2d');                // コンテキスト
+    reset();
+    update();   // ゲームループ開始
+}
+
+function reset(){
+    living=document.getElementById("living").value;
+    SIDE_CELLS = document.getElementById("size").value;
+    CELL_SIZE = SCREEN_SIZE / SIDE_CELLS;
+    field = new Array(SIDE_CELLS*SIDE_CELLS);
+    tempField = new Array(SIDE_CELLS*SIDE_CELLS);
+    for(var i=0; i<field.length; i++) field[i] = Math.floor(Math.random()*1.05)*M;
+    step=0;
+    draw();
+}
+
+function stop(){
+    if(isStop){
+        isStop = false;
+        document.getElementById("stop").innerHTML="stop";
+    }
+    else{
+        isStop = true;
+        document.getElementById("stop").innerHTML="start";
+    }
+}
+function kp(event){
+   console.log(pressedChar(event));
+   if(event.keyCode==13)reset();
+
+   var char = pressedChar(event);
+   if (char && !char.match(/\d/)) {
+      return false;
+   } else {
+      return true;
+   }
+}
+function pressedChar(event) {
+  var code = 0;
+  if (event.charCode === 0) {// Firefox, Safari control code
+    code = 0;
+  } else if (!event.keyCode && event.charCode) {// Firefox
+    code = event.charCode;
+  } else if (event.keyCode && !event.charCode) {// IE
+    code = event.keyCode;
+  } else if (event.keyCode == event.charCode) {// Safari
+    code = event.keyCode;
+  }
+  if (32 <= code && code <= 126) {// not ASCII
+    return String.fromCharCode(code);
+  } else {
+    return null;
+  }
+}
+
+
+function update() {
+    if(!isStop){
+    living=document.getElementById("living").value;
+    var n = 0;                    // 自身のまわりにある「生」の数
+    tempField = field.slice(); // 複製
+    for (var i=0; i<tempField.length; i++) {
+        n = 0;
+        for (var s=-1; s<2; s++) {
+            for (var t=-1; t<2; t++) {
+                if (s==0 && t==0) continue; // 自身はカウントしない
+                if (i>=0 && i<tempField.length && tempField[i+s*SIDE_CELLS+t]==M)n++;
+            }
+        }
+        if (tempField[i]==M) { 
+            if(document.getElementById("remain"+n).checked)field[i] = M;
+            else field[i] = living-1;
+        } else if (tempField[i]==0) {
+            if(document.getElementById("birth"+n).checked)field[i] = M;
+            else field[i] = 0;
+        } else field[i] = tempField[i]-1;
+    }
+    draw();
+    document.getElementById("step").innerHTML=step++;
+    }
+    setTimeout(update, 1000/FPS, field, tempField);
+}
+
+
+function draw() {
+    for (var i=0; i<field.length; i++) {
+        var r = document.getElementById("R").checked? Math.floor(255.0*Math.min(field[i],living)/living):0;
+        var g = document.getElementById("G").checked? Math.floor(255.0*Math.min(field[i],living)/living):0;
+        var b = document.getElementById("B").checked? Math.floor(255.0*Math.min(field[i],living)/living):0;
+        context.fillStyle = "rgb("+r+", "+g+", "+b+")";
+        context.fillRect((i%SIDE_CELLS)*CELL_SIZE, Math.floor(i/SIDE_CELLS)*CELL_SIZE, CELL_SIZE, CELL_SIZE);
+    }
+}
+//]]>
+</script>
+<title>Lifegame</title>
+<style>body{background:#111111;color:white;}</style>
+<canvas id="world"></canvas>
+<div>
+<button type="button" id="stop" onclick="stop();">stop</button>
+<button type="button" id="reset" onclick="reset();">reset</button>
+&ensp;size:<input type="number" id="size" value="200" min="1" max="1000" size="3" onkeypress="return kp(event)" onchange="" style="text-align:right;ime-mode:disabled;background-color:#eeeeee;"/>
+&ensp;states:<input type="number" id="living" value="3" min="2" max="256" size="2" onkeypress="return kp(event)" onchange="" style="text-align:right;ime-mode:disabled;background-color:#eeeeee;"/>
+&ensp;<input type="checkbox" id="R" checked="checked"> R
+&ensp;<input type="checkbox" id="G" > G
+&ensp;<input type="checkbox" id="B" > B
+&ensp;step: <span id="step">0</span>
+<table>
+<tr>
+<td>remain:</td>
+<td><input type="checkbox" id="remain0" value="0"> 0&ensp;</td>
+<td><input type="checkbox" id="remain1" value="1"> 1&ensp;</td>
+<td><input type="checkbox" id="remain2" value="2"> 2&ensp;</td>
+<td><input type="checkbox" id="remain3" value="3" checked="checked"> 3&ensp;</td>
+<td><input type="checkbox" id="remain4" value="4" checked="checked"> 4&ensp;</td>
+<td><input type="checkbox" id="remain5" value="5" checked="checked"> 5&ensp;</td>
+<td><input type="checkbox" id="remain6" value="6"> 6&ensp;</td>
+<td><input type="checkbox" id="remain7" value="7"> 7&ensp;</td>
+<td><input type="checkbox" id="remain8" value="8"> 8&ensp;</td>
+</tr>
+<tr>
+<td>birth:</td>
+<td><input type="checkbox" id="birth0" value="0"> 0&ensp;</td>
+<td><input type="checkbox" id="birth1" value="1"> 1&ensp;</td>
+<td><input type="checkbox" id="birth2" value="2" checked="checked"> 2&ensp;</td>
+<td><input type="checkbox" id="birth3" value="3"> 3&ensp;</td>
+<td><input type="checkbox" id="birth4" value="4"> 4&ensp;</td>
+<td><input type="checkbox" id="birth5" value="5"> 5&ensp;</td>
+<td><input type="checkbox" id="birth6" value="6"> 6&ensp;</td>
+<td><input type="checkbox" id="birth7" value="7"> 7&ensp;</td>
+<td><input type="checkbox" id="birth8" value="8"> 8&ensp;</td>
+</tr>
+</table>
+</div>
+
