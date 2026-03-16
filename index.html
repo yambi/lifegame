@@ -1,158 +1,445 @@
 <!DOCTYPE html>
-<meta charset="utf-8">
-<!-- 参考 http://ottati.hatenablog.com/entry/2013/09/14/105014 -->
-<script type="application/javascript">
-//<![CDATA[
-var SCREEN_SIZE = 500;                    // キャンバスの幅
-var SIDE_CELLS = 200;                     // 一辺のセルの数
-var CELL_SIZE = SCREEN_SIZE / SIDE_CELLS; // セルの幅
-var FPS = 15;                             // フレームレート
-var canvas;                     //= document.getElementById('world');
-var context;                    //= canvas.getContext('2d');
-var living = 3;                 //寿命
-var step = 0;
-var field;
-var tempField;
-var isStop = false;
-var M = 100000;
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lifegame</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-window.onload = function() {
-    canvas = document.getElementById('world'); // canvas要素を取得
-    canvas.width = canvas.height = SCREEN_SIZE; // キャンバスのサイズを設定
-    var scaleRate = Math.min(document.width/SCREEN_SIZE, window.innerHeight/SCREEN_SIZE);
-    canvas.style.width = canvas.style.height = SCREEN_SIZE*scaleRate+'px';  // キャンバスを引き伸ばし
-    context = canvas.getContext('2d');                // コンテキスト
-    reset();
-    update();   // ゲームループ開始
-}
-
-function reset(){
-    living=document.getElementById("living").value;
-    SIDE_CELLS = document.getElementById("size").value;
-    CELL_SIZE = SCREEN_SIZE / SIDE_CELLS;
-    field = new Array(SIDE_CELLS*SIDE_CELLS);
-    tempField = new Array(SIDE_CELLS*SIDE_CELLS);
-    for(var i=0; i<field.length; i++) field[i] = Math.floor(Math.random()*1.05)*M;
-    step=0;
-    draw();
-}
-
-function stop(){
-    if(isStop){
-        isStop = false;
-        document.getElementById("stop").innerHTML="stop";
+    body {
+      background: #0d0f14;
+      color: #c8cdd8;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      font-size: 13px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px 16px;
+      gap: 16px;
     }
-    else{
-        isStop = true;
-        document.getElementById("stop").innerHTML="start";
+
+    h1 {
+      font-size: 11px;
+      letter-spacing: 0.3em;
+      color: #444;
+      text-transform: uppercase;
+      align-self: flex-start;
     }
-}
-function kp(event){
-   console.log(pressedChar(event));
-   if(event.keyCode==13)reset();
 
-   var char = pressedChar(event);
-   if (char && !char.match(/\d/)) {
-      return false;
-   } else {
-      return true;
-   }
-}
-function pressedChar(event) {
-  var code = 0;
-  if (event.charCode === 0) {// Firefox, Safari control code
-    code = 0;
-  } else if (!event.keyCode && event.charCode) {// Firefox
-    code = event.charCode;
-  } else if (event.keyCode && !event.charCode) {// IE
-    code = event.keyCode;
-  } else if (event.keyCode == event.charCode) {// Safari
-    code = event.keyCode;
-  }
-  if (32 <= code && code <= 126) {// not ASCII
-    return String.fromCharCode(code);
-  } else {
-    return null;
-  }
-}
-
-
-function update() {
-    if(!isStop){
-    living=document.getElementById("living").value;
-    var n = 0;                    // 自身のまわりにある「生」の数
-    tempField = field.slice(); // 複製
-    for (var i=0; i<tempField.length; i++) {
-        n = 0;
-        for (var s=-1; s<2; s++) {
-            for (var t=-1; t<2; t++) {
-                if (s==0 && t==0) continue; // 自身はカウントしない
-                if (i>=0 && i<tempField.length && tempField[i+s*SIDE_CELLS+t]==M)n++;
-            }
-        }
-        if (tempField[i]==M) { 
-            if(document.getElementById("remain"+n).checked)field[i] = M;
-            else field[i] = living-1;
-        } else if (tempField[i]==0) {
-            if(document.getElementById("birth"+n).checked)field[i] = M;
-            else field[i] = 0;
-        } else field[i] = tempField[i]-1;
+    #world {
+      border: 1px solid #222;
+      cursor: crosshair;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      max-width: 100%;
+      max-height: 80vh;
     }
-    draw();
-    document.getElementById("step").innerHTML=step++;
-    }
-    setTimeout(update, 1000/FPS, field, tempField);
-}
 
-
-function draw() {
-    for (var i=0; i<field.length; i++) {
-        var r = document.getElementById("R").checked? Math.floor(255.0*Math.min(field[i],living)/living):0;
-        var g = document.getElementById("G").checked? Math.floor(255.0*Math.min(field[i],living)/living):0;
-        var b = document.getElementById("B").checked? Math.floor(255.0*Math.min(field[i],living)/living):0;
-        context.fillStyle = "rgb("+r+", "+g+", "+b+")";
-        context.fillRect((i%SIDE_CELLS)*CELL_SIZE, Math.floor(i/SIDE_CELLS)*CELL_SIZE, CELL_SIZE, CELL_SIZE);
+    .controls {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: 100%;
+      max-width: 600px;
     }
-}
-//]]>
-</script>
-<title>Lifegame</title>
-<style>body{background:#111111;color:white;}</style>
+
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: nowrap;
+      white-space: nowrap;
+    }
+
+    button {
+      padding: 5px 14px;
+      border: 1px solid #2e3240;
+      border-radius: 5px;
+      background: #161a24;
+      color: #c8cdd8;
+      cursor: pointer;
+      font-size: 12px;
+      letter-spacing: 0.05em;
+      transition: background 0.12s, border-color 0.12s;
+      user-select: none;
+    }
+    button:hover { background: #1f2434; border-color: #44516a; }
+    button.active { background: #1a2a3a; border-color: #4a7fa8; color: #8ec5e8; }
+
+    .field-group {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      color: #666;
+    }
+    .field-group span { color: #555; }
+
+    input[type="number"] {
+      width: 42px;
+      padding: 4px 7px;
+      border: 1px solid #2e3240;
+      border-radius: 4px;
+      background: #161a24;
+      color: #c8cdd8;
+      font-size: 12px;
+      text-align: right;
+      appearance: textfield;
+    }
+    input[type="number"]:focus {
+      outline: none;
+      border-color: #4a7fa8;
+    }
+
+    .speed-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #555;
+    }
+    #fpsRange {
+      width: 70px;
+      accent-color: #4a7fa8;
+      cursor: pointer;
+    }
+    .speed-group span { color: #667; min-width: 1.8em; text-align: right; }
+
+    input[type="checkbox"] {
+      width: 14px;
+      height: 14px;
+      accent-color: #4a7fa8;
+      cursor: pointer;
+    }
+
+    .step-display {
+      margin-left: auto;
+      color: #444;
+      white-space: nowrap;
+    }
+    .step-display span {
+      color: #667;
+      font-variant-numeric: tabular-nums;
+      min-width: 4em;
+      display: inline-block;
+      text-align: right;
+    }
+
+    .divider {
+      border: none;
+      border-top: 1px solid #1c2030;
+      margin: 2px 0;
+    }
+
+    .rule-section {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .rule-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .rule-label {
+      width: 52px;
+      color: #555;
+      font-size: 11px;
+      letter-spacing: 0.05em;
+      flex-shrink: 0;
+    }
+
+    .checkbox-group {
+      display: flex;
+      gap: 2px;
+    }
+
+    .checkbox-group label {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      padding: 4px 5px;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      cursor: pointer;
+      color: #444;
+      font-size: 11px;
+      transition: background 0.1s, border-color 0.1s;
+      user-select: none;
+    }
+    .checkbox-group label:hover {
+      background: #1a1e2a;
+      border-color: #2e3240;
+      color: #888;
+    }
+    .checkbox-group input[type="checkbox"]:checked + .cb-num {
+      color: #8ec5e8;
+    }
+    .checkbox-group label:has(input:checked) {
+      background: #141c28;
+      border-color: #2e4a6a;
+    }
+    .cb-num { pointer-events: none; }
+  </style>
+</head>
+<body>
+
+<h1>Life Game</h1>
+
 <canvas id="world"></canvas>
-<div>
-<button type="button" id="stop" onclick="stop();">stop</button>
-<button type="button" id="reset" onclick="reset();">reset</button>
-&ensp;size:<input type="number" id="size" value="200" min="1" max="1000" size="3" onkeypress="return kp(event)" onchange="" style="text-align:right;ime-mode:disabled;background-color:#eeeeee;"/>
-&ensp;states:<input type="number" id="living" value="3" min="2" max="256" size="2" onkeypress="return kp(event)" onchange="" style="text-align:right;ime-mode:disabled;background-color:#eeeeee;"/>
-&ensp;<input type="checkbox" id="R" checked="checked"> R
-&ensp;<input type="checkbox" id="G" > G
-&ensp;<input type="checkbox" id="B" > B
-&ensp;step: <span id="step">0</span>
-<table>
-<tr>
-<td>remain:</td>
-<td><input type="checkbox" id="remain0" value="0"> 0&ensp;</td>
-<td><input type="checkbox" id="remain1" value="1"> 1&ensp;</td>
-<td><input type="checkbox" id="remain2" value="2"> 2&ensp;</td>
-<td><input type="checkbox" id="remain3" value="3" checked="checked"> 3&ensp;</td>
-<td><input type="checkbox" id="remain4" value="4" checked="checked"> 4&ensp;</td>
-<td><input type="checkbox" id="remain5" value="5" checked="checked"> 5&ensp;</td>
-<td><input type="checkbox" id="remain6" value="6"> 6&ensp;</td>
-<td><input type="checkbox" id="remain7" value="7"> 7&ensp;</td>
-<td><input type="checkbox" id="remain8" value="8"> 8&ensp;</td>
-</tr>
-<tr>
-<td>birth:</td>
-<td><input type="checkbox" id="birth0" value="0"> 0&ensp;</td>
-<td><input type="checkbox" id="birth1" value="1"> 1&ensp;</td>
-<td><input type="checkbox" id="birth2" value="2" checked="checked"> 2&ensp;</td>
-<td><input type="checkbox" id="birth3" value="3"> 3&ensp;</td>
-<td><input type="checkbox" id="birth4" value="4"> 4&ensp;</td>
-<td><input type="checkbox" id="birth5" value="5"> 5&ensp;</td>
-<td><input type="checkbox" id="birth6" value="6"> 6&ensp;</td>
-<td><input type="checkbox" id="birth7" value="7"> 7&ensp;</td>
-<td><input type="checkbox" id="birth8" value="8"> 8&ensp;</td>
-</tr>
-</table>
+
+<div class="controls">
+  <div class="row">
+    <button id="stopBtn" onclick="toggleStop()">Stop</button>
+    <button onclick="reset()">Reset</button>
+    <div class="field-group">
+      <span>size</span>
+      <input type="number" id="size" value="200" min="1" max="500" style="width:58px">
+    </div>
+    <div class="field-group">
+      <span>states</span>
+      <input type="number" id="living" value="3" min="2" max="256" style="width:44px">
+    </div>
+    <div class="speed-group">
+      speed
+      <input type="range" id="fpsRange" min="0" max="60" value="15" oninput="updateFps(this.value)">
+      <span id="fpsVal">15</span>
+    </div>
+    <div class="step-display">step <span id="step">0</span></div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="rule-section">
+    <div class="rule-row">
+      <span class="rule-label">remain</span>
+      <div class="checkbox-group" id="remainGroup"></div>
+    </div>
+    <div class="rule-row">
+      <span class="rule-label">birth</span>
+      <div class="checkbox-group" id="birthGroup"></div>
+    </div>
+  </div>
 </div>
 
+<script>
+const SCREEN_SIZE = 800;
+const M = 100000;
+let FPS = 15;
+
+let SIDE_CELLS = 200;
+let CELL_SIZE = SCREEN_SIZE / SIDE_CELLS;
+let living = 3;
+let step = 0;
+let field, tempField;
+let isStop = false;
+let canvas, context;
+
+// Drawing state
+let isDrawing = false;
+let drawValue = null;
+
+window.addEventListener('load', () => {
+  canvas = document.getElementById('world');
+  canvas.width = canvas.height = SCREEN_SIZE;
+
+  const maxPx = Math.min(
+    window.innerWidth - 32,
+    Math.floor(window.innerHeight * 0.8)
+  );
+  const displaySize = Math.min(maxPx, SCREEN_SIZE);
+  canvas.style.width = canvas.style.height = displaySize + 'px';
+
+  context = canvas.getContext('2d');
+
+  buildCheckboxGroups();
+  reset();
+  requestAnimationFrame(loop);
+
+  // Mouse events for drawing
+  canvas.addEventListener('mousedown', onMouseDown);
+  canvas.addEventListener('mousemove', onMouseMove);
+  canvas.addEventListener('mouseup',    () => { isDrawing = false; });
+  canvas.addEventListener('mouseleave', () => { isDrawing = false; });
+
+  // Touch events for mobile
+  canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+  canvas.addEventListener('touchmove',  onTouchMove,  { passive: false });
+  canvas.addEventListener('touchend',   () => { isDrawing = false; });
+});
+
+function buildCheckboxGroups() {
+  const remainDefaults = new Set([3, 4, 5]);
+  const birthDefaults  = new Set([2]);
+  const remainGroup = document.getElementById('remainGroup');
+  const birthGroup  = document.getElementById('birthGroup');
+
+  for (let n = 0; n <= 8; n++) {
+    remainGroup.append(makeCheckbox(`remain${n}`, n, remainDefaults.has(n)));
+    birthGroup.append(makeCheckbox(`birth${n}`,  n, birthDefaults.has(n)));
+  }
+}
+
+function makeCheckbox(id, n, checked) {
+  const label = document.createElement('label');
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.id = id;
+  cb.checked = checked;
+  const num = document.createElement('span');
+  num.className = 'cb-num';
+  num.textContent = n;
+  label.append(cb, num);
+  return label;
+}
+
+function reset() {
+  living    = parseInt(document.getElementById('living').value) || 3;
+  SIDE_CELLS = parseInt(document.getElementById('size').value) || 100;
+  CELL_SIZE = SCREEN_SIZE / SIDE_CELLS;
+  field     = new Array(SIDE_CELLS * SIDE_CELLS);
+  tempField = new Array(SIDE_CELLS * SIDE_CELLS);
+  for (let i = 0; i < field.length; i++) {
+    field[i] = Math.random() < 0.05 ? M : 0;
+  }
+  step = 0;
+  draw();
+}
+
+function updateFps(val) {
+  FPS = parseInt(val);
+  document.getElementById('fpsVal').textContent = val;
+}
+
+function toggleStop() {
+  isStop = !isStop;
+  const btn = document.getElementById('stopBtn');
+  btn.textContent = isStop ? 'Start' : 'Stop';
+  btn.classList.toggle('active', isStop);
+}
+
+let lastTime = 0;
+function loop(timestamp) {
+  if (FPS > 0 && timestamp - lastTime >= 1000 / FPS) {
+    if (!isStop) tick();
+    lastTime = timestamp;
+  }
+  requestAnimationFrame(loop);
+}
+
+function tick() {
+  living = parseInt(document.getElementById('living').value) || 3;
+  tempField = field.slice();
+
+  for (let i = 0; i < tempField.length; i++) {
+    const row = Math.floor(i / SIDE_CELLS);
+    const col = i % SIDE_CELLS;
+    let n = 0;
+
+    for (let s = -1; s <= 1; s++) {
+      for (let t = -1; t <= 1; t++) {
+        if (s === 0 && t === 0) continue;
+        const nr = (row + s + SIDE_CELLS) % SIDE_CELLS;
+        const nc = (col + t + SIDE_CELLS) % SIDE_CELLS;
+        if (tempField[nr * SIDE_CELLS + nc] === M) n++;
+      }
+    }
+
+    if (tempField[i] === M) {
+      field[i] = document.getElementById(`remain${n}`).checked ? M : living - 1;
+    } else if (tempField[i] === 0) {
+      field[i] = document.getElementById(`birth${n}`).checked ? M : 0;
+    } else {
+      field[i] = tempField[i] - 1;
+    }
+  }
+
+  draw();
+  document.getElementById('step').textContent = step++;
+}
+
+function draw() {
+  const useR = true, useG = false, useB = false;
+  const imageData = context.createImageData(SCREEN_SIZE, SCREEN_SIZE);
+  const data = imageData.data;
+
+  for (let i = 0; i < field.length; i++) {
+    const brightness = Math.floor(255 * Math.min(field[i], living) / living);
+    const row = Math.floor(i / SIDE_CELLS);
+    const col = i % SIDE_CELLS;
+    const x0 = Math.floor(col * CELL_SIZE);
+    const y0 = Math.floor(row * CELL_SIZE);
+    const x1 = Math.floor((col + 1) * CELL_SIZE);
+    const y1 = Math.floor((row + 1) * CELL_SIZE);
+
+    for (let py = y0; py < y1; py++) {
+      for (let px = x0; px < x1; px++) {
+        const idx = (py * SCREEN_SIZE + px) * 4;
+        data[idx]     = useR ? brightness : 0;
+        data[idx + 1] = useG ? brightness : 0;
+        data[idx + 2] = useB ? brightness : 0;
+        data[idx + 3] = 255;
+      }
+    }
+  }
+
+  context.putImageData(imageData, 0, 0);
+}
+
+// --- Drawing on canvas ---
+
+function getCellIndex(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = SCREEN_SIZE / rect.width;
+  const scaleY = SCREEN_SIZE / rect.height;
+  const x = (clientX - rect.left) * scaleX;
+  const y = (clientY - rect.top)  * scaleY;
+  const col = Math.floor(x / CELL_SIZE);
+  const row = Math.floor(y / CELL_SIZE);
+  if (col < 0 || col >= SIDE_CELLS || row < 0 || row >= SIDE_CELLS) return -1;
+  return row * SIDE_CELLS + col;
+}
+
+function onMouseDown(e) {
+  const idx = getCellIndex(e.clientX, e.clientY);
+  if (idx < 0) return;
+  isDrawing = true;
+  drawValue = field[idx] === M ? 0 : M;
+  field[idx] = drawValue;
+  draw();
+}
+
+function onMouseMove(e) {
+  if (!isDrawing) return;
+  const idx = getCellIndex(e.clientX, e.clientY);
+  if (idx < 0) return;
+  field[idx] = drawValue;
+  draw();
+}
+
+function onTouchStart(e) {
+  e.preventDefault();
+  const t = e.touches[0];
+  const idx = getCellIndex(t.clientX, t.clientY);
+  if (idx < 0) return;
+  isDrawing = true;
+  drawValue = field[idx] === M ? 0 : M;
+  field[idx] = drawValue;
+  draw();
+}
+
+function onTouchMove(e) {
+  e.preventDefault();
+  if (!isDrawing) return;
+  const t = e.touches[0];
+  const idx = getCellIndex(t.clientX, t.clientY);
+  if (idx < 0) return;
+  field[idx] = drawValue;
+  draw();
+}
+</script>
+</body>
+</html>
