@@ -231,16 +231,25 @@ const M = 100000;
 let FPS = 15;
 
 let SIDE_CELLS = 200;
-let CELL_SIZE = SCREEN_SIZE / SIDE_CELLS;
 let living = 3;
 let step = 0;
 let field, tempField;
 let isStop = false;
 let canvas, context;
 
+// Precomputed pixel-boundary lookup tables (rebuilt on reset)
+let xBounds, yBounds; // xBounds[col] = x0, yBounds[row] = y0 (x1 = xBounds[col+1])
+
+// Reused ImageData buffer (rebuilt on reset)
+let imageData, imgData;
+
+// Cached rule arrays — rebuilt when checkboxes change
+let remainRule = new Uint8Array(9); // remainRule[n] = 1 if cell survives with n live neighbours
+let birthRule  = new Uint8Array(9); // birthRule[n]  = 1 if cell is born with n live neighbours
+
 // Drawing state
 let isDrawing = false;
-let drawValue = null;
+let drawValue = 0;
 
 window.addEventListener('load', () => {
   canvas = document.getElementById('world');
@@ -260,14 +269,14 @@ window.addEventListener('load', () => {
   requestAnimationFrame(loop);
 
   // Mouse events for drawing
-  canvas.addEventListener('mousedown', onMouseDown);
-  canvas.addEventListener('mousemove', onMouseMove);
+  canvas.addEventListener('mousedown', e => { startDraw(e.clientX, e.clientY); });
+  canvas.addEventListener('mousemove', e => { continueDraw(e.clientX, e.clientY); });
   canvas.addEventListener('mouseup',    () => { isDrawing = false; });
   canvas.addEventListener('mouseleave', () => { isDrawing = false; });
 
   // Touch events for mobile
-  canvas.addEventListener('touchstart', onTouchStart, { passive: false });
-  canvas.addEventListener('touchmove',  onTouchMove,  { passive: false });
+  canvas.addEventListener('touchstart', e => { e.preventDefault(); startDraw(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
+  canvas.addEventListener('touchmove',  e => { e.preventDefault(); continueDraw(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
   canvas.addEventListener('touchend',   () => { isDrawing = false; });
 });
 
@@ -278,9 +287,14 @@ function buildCheckboxGroups() {
   const birthGroup  = document.getElementById('birthGroup');
 
   for (let n = 0; n <= 8; n++) {
-    remainGroup.append(makeCheckbox(`remain${n}`, n, remainDefaults.has(n)));
-    birthGroup.append(makeCheckbox(`birth${n}`,  n, birthDefaults.has(n)));
+    const rc = makeCheckbox(`remain${n}`, n, remainDefaults.has(n));
+    const bc = makeCheckbox(`birth${n}`,  n, birthDefaults.has(n));
+    rc.querySelector('input').addEventListener('change', syncRules);
+    bc.querySelector('input').addEventListener('change', syncRules);
+    remainGroup.append(rc);
+    birthGroup.append(bc);
   }
+  syncRules();
 }
 
 function makeCheckbox(id, n, checked) {
@@ -296,16 +310,40 @@ function makeCheckbox(id, n, checked) {
   return label;
 }
 
+// Cache checkbox states into typed arrays so tick() never touches the DOM
+function syncRules() {
+  for (let n = 0; n <= 8; n++) {
+    remainRule[n] = document.getElementById(`remain${n}`).checked ? 1 : 0;
+    birthRule[n]  = document.getElementById(`birth${n}`).checked  ? 1 : 0;
+  }
+}
+
 function reset() {
-  living    = parseInt(document.getElementById('living').value) || 3;
-  SIDE_CELLS = parseInt(document.getElementById('size').value) || 100;
-  CELL_SIZE = SCREEN_SIZE / SIDE_CELLS;
-  field     = new Array(SIDE_CELLS * SIDE_CELLS);
-  tempField = new Array(SIDE_CELLS * SIDE_CELLS);
-  for (let i = 0; i < field.length; i++) {
+  living     = parseInt(document.getElementById('living').value) || 3;
+  SIDE_CELLS = parseInt(document.getElementById('size').value)   || 100;
+
+  const size = SIDE_CELLS * SIDE_CELLS;
+  field     = new Int32Array(size);
+  tempField = new Int32Array(size);
+  for (let i = 0; i < size; i++) {
     field[i] = Math.random() < 0.05 ? M : 0;
   }
   step = 0;
+
+  // Precompute per-column and per-row pixel start positions
+  xBounds = new Uint16Array(SIDE_CELLS + 1);
+  yBounds = new Uint16Array(SIDE_CELLS + 1);
+  for (let k = 0; k <= SIDE_CELLS; k++) {
+    xBounds[k] = Math.round(k * SCREEN_SIZE / SIDE_CELLS);
+    yBounds[k] = Math.round(k * SCREEN_SIZE / SIDE_CELLS);
+  }
+
+  // Reuse a single ImageData for the lifetime of this grid size
+  imageData = context.createImageData(SCREEN_SIZE, SCREEN_SIZE);
+  imgData   = imageData.data;
+  // Pre-fill alpha channel once — it never changes
+  for (let i = 3; i < imgData.length; i += 4) imgData[i] = 255;
+
   draw();
 }
 
@@ -331,30 +369,37 @@ function loop(timestamp) {
 }
 
 function tick() {
-  living = parseInt(document.getElementById('living').value) || 3;
-  tempField = field.slice();
+  // Copy field into tempField without allocating
+  tempField.set(field);
 
+  let row = 0, col = 0;
   for (let i = 0; i < tempField.length; i++) {
-    const row = Math.floor(i / SIDE_CELLS);
-    const col = i % SIDE_CELLS;
     let n = 0;
+    const rowAbove = (row === 0           ? SIDE_CELLS - 1 : row - 1) * SIDE_CELLS;
+    const rowBelow = (row === SIDE_CELLS - 1 ? 0           : row + 1) * SIDE_CELLS;
+    const colLeft  =  col === 0           ? SIDE_CELLS - 1 : col - 1;
+    const colRight =  col === SIDE_CELLS - 1 ? 0           : col + 1;
 
-    for (let s = -1; s <= 1; s++) {
-      for (let t = -1; t <= 1; t++) {
-        if (s === 0 && t === 0) continue;
-        const nr = (row + s + SIDE_CELLS) % SIDE_CELLS;
-        const nc = (col + t + SIDE_CELLS) % SIDE_CELLS;
-        if (tempField[nr * SIDE_CELLS + nc] === M) n++;
-      }
-    }
+    if (tempField[rowAbove + colLeft]  === M) n++;
+    if (tempField[rowAbove + col]      === M) n++;
+    if (tempField[rowAbove + colRight] === M) n++;
+    if (tempField[row * SIDE_CELLS + colLeft]  === M) n++;
+    if (tempField[row * SIDE_CELLS + colRight] === M) n++;
+    if (tempField[rowBelow + colLeft]  === M) n++;
+    if (tempField[rowBelow + col]      === M) n++;
+    if (tempField[rowBelow + colRight] === M) n++;
 
-    if (tempField[i] === M) {
-      field[i] = document.getElementById(`remain${n}`).checked ? M : living - 1;
-    } else if (tempField[i] === 0) {
-      field[i] = document.getElementById(`birth${n}`).checked ? M : 0;
+    const v = tempField[i];
+    if (v === M) {
+      field[i] = remainRule[n] ? M : living - 1;
+    } else if (v === 0) {
+      field[i] = birthRule[n]  ? M : 0;
     } else {
-      field[i] = tempField[i] - 1;
+      field[i] = v - 1;
     }
+
+    col++;
+    if (col === SIDE_CELLS) { col = 0; row++; }
   }
 
   draw();
@@ -362,30 +407,27 @@ function tick() {
 }
 
 function draw() {
-  const useR = true, useG = false, useB = false;
-  const imageData = context.createImageData(SCREEN_SIZE, SCREEN_SIZE);
-  const data = imageData.data;
-
-  for (let i = 0; i < field.length; i++) {
-    const brightness = Math.floor(255 * Math.min(field[i], living) / living);
-    const row = Math.floor(i / SIDE_CELLS);
-    const col = i % SIDE_CELLS;
-    const x0 = Math.floor(col * CELL_SIZE);
-    const y0 = Math.floor(row * CELL_SIZE);
-    const x1 = Math.floor((col + 1) * CELL_SIZE);
-    const y1 = Math.floor((row + 1) * CELL_SIZE);
-
-    for (let py = y0; py < y1; py++) {
-      for (let px = x0; px < x1; px++) {
-        const idx = (py * SCREEN_SIZE + px) * 4;
-        data[idx]     = useR ? brightness : 0;
-        data[idx + 1] = useG ? brightness : 0;
-        data[idx + 2] = useB ? brightness : 0;
-        data[idx + 3] = 255;
+  for (let row = 0; row < SIDE_CELLS; row++) {
+    const y0 = yBounds[row];
+    const y1 = yBounds[row + 1];
+    for (let col = 0; col < SIDE_CELLS; col++) {
+      const brightness = (field[row * SIDE_CELLS + col] >= M)
+        ? 255
+        : Math.floor(255 * field[row * SIDE_CELLS + col] / living);
+      const x0 = xBounds[col];
+      const x1 = xBounds[col + 1];
+      for (let py = y0; py < y1; py++) {
+        const base = (py * SCREEN_SIZE + x0) * 4;
+        for (let px = x0; px < x1; px++) {
+          const idx = (py * SCREEN_SIZE + px) * 4;
+          imgData[idx]     = brightness; // R
+          imgData[idx + 1] = 0;          // G
+          imgData[idx + 2] = 0;          // B
+          // alpha already set to 255
+        }
       }
     }
   }
-
   context.putImageData(imageData, 0, 0);
 }
 
@@ -393,18 +435,14 @@ function draw() {
 
 function getCellIndex(clientX, clientY) {
   const rect = canvas.getBoundingClientRect();
-  const scaleX = SCREEN_SIZE / rect.width;
-  const scaleY = SCREEN_SIZE / rect.height;
-  const x = (clientX - rect.left) * scaleX;
-  const y = (clientY - rect.top)  * scaleY;
-  const col = Math.floor(x / CELL_SIZE);
-  const row = Math.floor(y / CELL_SIZE);
+  const col = Math.floor((clientX - rect.left) * SIDE_CELLS / rect.width);
+  const row = Math.floor((clientY - rect.top)  * SIDE_CELLS / rect.height);
   if (col < 0 || col >= SIDE_CELLS || row < 0 || row >= SIDE_CELLS) return -1;
   return row * SIDE_CELLS + col;
 }
 
-function onMouseDown(e) {
-  const idx = getCellIndex(e.clientX, e.clientY);
+function startDraw(clientX, clientY) {
+  const idx = getCellIndex(clientX, clientY);
   if (idx < 0) return;
   isDrawing = true;
   drawValue = field[idx] === M ? 0 : M;
@@ -412,30 +450,9 @@ function onMouseDown(e) {
   draw();
 }
 
-function onMouseMove(e) {
+function continueDraw(clientX, clientY) {
   if (!isDrawing) return;
-  const idx = getCellIndex(e.clientX, e.clientY);
-  if (idx < 0) return;
-  field[idx] = drawValue;
-  draw();
-}
-
-function onTouchStart(e) {
-  e.preventDefault();
-  const t = e.touches[0];
-  const idx = getCellIndex(t.clientX, t.clientY);
-  if (idx < 0) return;
-  isDrawing = true;
-  drawValue = field[idx] === M ? 0 : M;
-  field[idx] = drawValue;
-  draw();
-}
-
-function onTouchMove(e) {
-  e.preventDefault();
-  if (!isDrawing) return;
-  const t = e.touches[0];
-  const idx = getCellIndex(t.clientX, t.clientY);
+  const idx = getCellIndex(clientX, clientY);
   if (idx < 0) return;
   field[idx] = drawValue;
   draw();
