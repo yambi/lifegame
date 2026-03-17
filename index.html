@@ -201,7 +201,7 @@
     </div>
     <div class="field-group">
       <span>states</span>
-      <input type="number" id="living" value="3" min="2" max="256" style="width:44px">
+      <input type="number" id="living" value="3" min="2" max="256" style="width:44px" oninput="living = parseInt(this.value) || 3; draw()">
     </div>
     <div class="speed-group">
       speed
